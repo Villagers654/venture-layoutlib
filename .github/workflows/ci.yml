@@ -1,0 +1,35 @@
+# Builds Venture's Android 2D framework with this fork's classes and runs its linkage check.
+name: CI
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      venture_ref:
+        description: Venture branch or tag to build against
+        default: release/0.3.0
+permissions:
+  contents: read
+jobs:
+  venture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+      - uses: actions/checkout@v4
+        with:
+          repository: Villagers654/Venture
+          ref: ${{ inputs.venture_ref || 'release/0.3.0' }}
+          path: venture
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build against Venture and check linkage
+        run: python fork/.github/venture_check.py --venture venture --fork fork --work work
