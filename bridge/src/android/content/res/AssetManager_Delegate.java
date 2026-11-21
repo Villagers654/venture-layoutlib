@@ -1,85 +1,41 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package android.content.res;
 
-import com.android.layoutlib.bridge.impl.DelegateManager;
-import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
-
-import android.util.SparseArray;
-
-import libcore.util.NativeAllocationRegistry_Delegate;
+import android.util.ArraySet;
+import com.venture.runtime.layoutlib.Layoutlib;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.util.List;
 
 /**
- * Delegate used to provide implementation of a select few native methods of {@link AssetManager}
- * <p/>
- * Through the layoutlib_create tool, the original native methods of AssetManager have been replaced
- * by calls to methods of the same name in this delegate class.
- *
+ * The system assets are layoutlib's framework-res.apk beside it, not
+ * /system/framework, and a 2D process has no runtime resource overlays
+ * (AOSP's version also asks OverlayConfig for the partitions' overlays).
  */
-public class AssetManager_Delegate {
+public final class AssetManager_Delegate {
+  private AssetManager_Delegate() {}
 
-    // ---- delegate manager ----
-
-    private static final DelegateManager<AssetManager_Delegate> sManager =
-            new DelegateManager<>(AssetManager_Delegate.class);
-    private static long sFinalizer = -1;
-
-    // ---- delegate methods. ----
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeCreate() {
-        AssetManager_Delegate delegate = new AssetManager_Delegate();
-        return sManager.addNewDelegate(delegate);
+  static void createSystemAssetsInZygoteLocked(boolean reinitialize, String path) {
+    try {
+      Field system = AssetManager.class.getDeclaredField("sSystem");
+      system.setAccessible(true);
+      if (system.get(null) != null && !reinitialize) return;
+      ApkAssets[] assets = {ApkAssets.loadFromPath(Layoutlib.frameworkResources(), ApkAssets.PROPERTY_SYSTEM)};
+      Field set = AssetManager.class.getDeclaredField("sSystemApkAssetsSet");
+      set.setAccessible(true);
+      set.set(null, new ArraySet<>(List.of(assets)));
+      Field array = AssetManager.class.getDeclaredField("sSystemApkAssets");
+      array.setAccessible(true);
+      array.set(null, assets);
+      if (system.get(null) == null) {
+        Constructor<AssetManager> sentinel = AssetManager.class.getDeclaredConstructor(boolean.class);
+        sentinel.setAccessible(true);
+        system.set(null, sentinel.newInstance(true));
+      }
+      ((AssetManager) system.get(null)).setApkAssets(assets, false);
+    } catch (java.io.IOException e) {
+      throw new IllegalStateException("Failed to create system AssetManager", e);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e);
     }
-
-    @LayoutlibDelegate
-    /*package*/ static void nativeDestroy(long ptr) {
-        sManager.removeJavaReferenceFor(ptr);
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeThemeCreate(long ptr) {
-        return Resources_Theme_Delegate.getDelegateManager()
-                .addNewDelegate(new Resources_Theme_Delegate());
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeGetThemeFreeFunction() {
-        synchronized (AssetManager_Delegate.class) {
-            if (sFinalizer == -1) {
-                sFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
-                        Resources_Theme_Delegate.getDelegateManager()::removeJavaReferenceFor);
-            }
-        }
-        return sFinalizer;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static SparseArray<String> getAssignedPackageIdentifiers(AssetManager manager) {
-        return new SparseArray<>();
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static SparseArray<String> getAssignedPackageIdentifiers(AssetManager manager,
-            boolean includeOverlays, boolean includeLoaders) {
-        return new SparseArray<>();
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void createSystemAssetsInZygoteLocked(boolean reinitialize,
-            String frameworkPath) { }
+  }
 }
